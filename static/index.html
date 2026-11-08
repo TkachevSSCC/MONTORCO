@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CO₂ · живой монитор воздуха</title>
+<meta name="description" content="Живые показания USB-датчика CO₂ и температуры: концентрация, шкала качества, история и телеметрия устройства.">
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230b1013'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%233ddc97'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+
+<header class="top">
+  <a class="brand" href="/">
+    <span class="brand-dot"></span>
+    <span>CO₂ · живой монитор</span>
+  </a>
+  <div class="conn" id="conn">
+    <span class="conn-dot"></span>
+    <span class="conn-text">подключение…</span>
+  </div>
+</header>
+
+<main>
+  <!-- ───────────── первый экран ───────────── -->
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">USB-датчик · Holtek USB-zyTemp</p>
+      <h1>Воздух в комнате<br><span>прямо сейчас</span></h1>
+      <p class="lede">
+        Показания снимаются напрямую с подключённого CO₂-монитора:
+        инфракрасный сенсор отдаёт концентрацию углекислого газа и температуру
+        десять раз в минуту. Никаких облаков — данные не покидают компьютер.
+      </p>
+      <dl class="hero-meta" id="hero-meta">
+        <div><dt>Устройство</dt><dd id="device-name">поиск…</dd></div>
+        <div><dt>Серийный номер</dt><dd id="device-serial">—</dd></div>
+        <div><dt>Подключение</dt><dd id="device-link">—</dd></div>
+      </dl>
+    </div>
+
+    <div class="hero-readout">
+      <div class="reading" id="reading-card">
+        <div class="reading-label">концентрация CO₂</div>
+        <div class="reading-value"><span id="co2-value">—</span><span class="reading-unit">ppm</span></div>
+        <div class="verdict" id="verdict">ожидание данных</div>
+      </div>
+
+      <div class="quick">
+        <div class="quick-item">
+          <span class="quick-label">Температура</span>
+          <span class="quick-value" id="temp-value">—</span>
+        </div>
+        <div class="quick-item">
+          <span class="quick-label">Период пакета</span>
+          <span class="quick-value" id="interval-value">—</span>
+        </div>
+        <div class="quick-item">
+          <span class="quick-label">Пакетов принято</span>
+          <span class="quick-value" id="packets-value">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── шкала ───────────── -->
+  <section class="card gauge-card">
+    <div class="card-head">
+      <h2>Шкала качества воздуха</h2>
+      <span class="card-note" id="gauge-note">—</span>
+    </div>
+
+    <div class="gauge">
+      <div class="gauge-track">
+        <div class="gauge-band band-excellent" style="flex:2"></div>
+        <div class="gauge-band band-good" style="flex:2"></div>
+        <div class="gauge-band band-moderate" style="flex:2"></div>
+        <div class="gauge-band band-poor" style="flex:4"></div>
+        <div class="gauge-band band-bad" style="flex:6"></div>
+        <div class="gauge-marker" id="gauge-marker" hidden></div>
+      </div>
+      <div class="gauge-scale">
+        <span>400</span><span>600</span><span>800</span><span>1000</span><span>1400</span><span>2000+</span>
+      </div>
+      <div class="gauge-legend">
+        <span class="lg lg-excellent">отлично</span>
+        <span class="lg lg-good">хорошо</span>
+        <span class="lg lg-moderate">приемлемо</span>
+        <span class="lg lg-poor">душно</span>
+        <span class="lg lg-bad">плохо</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── график + ориентиры ───────────── -->
+  <div class="split">
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2>История измерений</h2>
+        <span class="card-note" id="chart-note">10 минут</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chart" height="260"></canvas>
+        <div class="chart-empty" id="chart-empty">накапливаем данные…</div>
+      </div>
+      <div class="chart-foot">
+        <span>CO₂, ppm</span>
+        <span id="chart-stats">мин — · среднее — · макс —</span>
+      </div>
+    </section>
+
+    <section class="card ref-card">
+      <div class="card-head">
+        <h2>Ориентиры</h2>
+        <span class="card-note">типичные значения</span>
+      </div>
+      <ul class="ref-list">
+        <li><b>420 ppm</b><span>свежий воздух на улице</span></li>
+        <li><b>550 ppm</b><span>проветренная комната</span></li>
+        <li><b>800 ppm</b><span>комфортный предел для работы</span></li>
+        <li><b>1000 ppm</b><span>становится душно, падает внимание</span></li>
+        <li><b>1400 ppm</b><span>голова тяжелеет, нужен свежий воздух</span></li>
+        <li><b>2000 ppm</b><span>высокая концентрация, проветрить немедленно</span></li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- ───────────── датчики ───────────── -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Датчики</h2>
+      <span class="card-note" id="sensors-note">поиск устройств…</span>
+    </div>
+    <div class="sensors" id="sensors"></div>
+    <p class="hint">
+      Подключите второй такой же монитор — он определится сам и появится в этом
+      списке. Поддерживаются все устройства семейства Holtek USB-zyTemp
+      (VID&nbsp;04d9, PID&nbsp;a052), включая TFA AirCO2ntrol и его клоны.
+    </p>
+  </section>
+
+  <!-- ───────────── телеметрия ───────────── -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Телеметрия устройства</h2>
+      <span class="card-note">служебные данные HID-обмена</span>
+    </div>
+    <dl class="telemetry" id="telemetry"></dl>
+  </section>
+</main>
+
+<footer>
+  <span>Данные читаются локально по USB HID, без интернета и сторонних сервисов.</span>
+  <span class="foot-sep">·</span>
+  <span>Протокол: 8-байтовые отчёты, CO₂ (0x50) и температура (0x42)</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

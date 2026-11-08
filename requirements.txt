@@ -1,0 +1,4 @@
+fastapi>=0.110
+uvicorn>=0.27
+hidapi>=0.14
+co2meter>=0.2.6
