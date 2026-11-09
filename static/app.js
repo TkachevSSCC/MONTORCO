@@ -306,6 +306,10 @@
   // ───────────────────────── список датчиков ─────────────────────────
   function renderSensors() {
     const sensors = state?.sensors || [];
+    const measured = sensors.filter((sensor) => Number.isFinite(sensor.co2));
+    const co2Values = measured.map((sensor) => sensor.co2);
+    const minCo2 = co2Values.length > 1 ? Math.min(...co2Values) : null;
+    const maxCo2 = co2Values.length > 1 ? Math.max(...co2Values) : null;
     el.sensors.textContent = "";
 
     if (!sensors.length) {
@@ -324,6 +328,8 @@
     for (const s of sensors) {
       const card = document.createElement("div");
       card.className = "sensor";
+      if (minCo2 !== maxCo2 && s.co2 === maxCo2) card.classList.add("sensor-highest");
+      if (minCo2 !== maxCo2 && s.co2 === minCo2) card.classList.add("sensor-lowest");
 
       const top = document.createElement("div");
       top.className = "sensor-top";

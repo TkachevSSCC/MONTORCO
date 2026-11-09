@@ -609,6 +609,9 @@ main {
   padding: 16px 18px;
 }
 
+.sensor-highest { border-color: var(--bad); }
+.sensor-lowest { border-color: var(--excellent); }
+
 .sensor-top {
   display: flex;
   align-items: center;
