@@ -87,6 +87,8 @@ def run(args: argparse.Namespace) -> None:
         "usage_page": info.get("usage_page", 0),
         "usage": info.get("usage", 0),
         "path": "remote agent",
+        "latitude": args.latitude,
+        "longitude": args.longitude,
     }
     device = hid.device()
     device.open_path(path)
@@ -153,6 +155,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="https://eco.curxtor.ru/co2")
     parser.add_argument("--sensor-path", default="")
+    parser.add_argument("--latitude", type=float)
+    parser.add_argument("--longitude", type=float)
     parser.add_argument("--list", action="store_true", dest="list_devices")
     args = parser.parse_args()
     found = devices()

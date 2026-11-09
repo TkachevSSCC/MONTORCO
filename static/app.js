@@ -335,6 +335,8 @@
       ["Период опроса", fmtSec(primary.interval)],
       ["Последнее обновление", ago(primary.last_update)],
       ["Путь HID", m.path],
+      ["Широта", m.latitude == null ? "—" : Number(m.latitude).toFixed(5)],
+      ["Долгота", m.longitude == null ? "—" : Number(m.longitude).toFixed(5)],
     ];
 
     for (const [label, value] of rows) {

@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 title MONTORCO CO2 sensor agent
 
 set "BASE=https://eco.curxtor.ru/co2"
@@ -12,6 +12,21 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+
+echo Detecting approximate location from public IP...
+set "LAT="
+set "LON="
+for /f "tokens=1,2 delims=," %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $g=Invoke-RestMethod 'https://ipapi.co/json/' -TimeoutSec 5; if ($null -ne $g.latitude -and $null -ne $g.longitude) { [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0},{1}', $g.latitude, $g.longitude) } } catch {}"') do (
+  set "LAT=%%A"
+  set "LON=%%B"
+)
+if not "%LAT%"=="" (
+  echo Approximate location: !LAT!, !LON!
+) else (
+  echo Automatic location lookup failed.
+)
+set /p "LAT=Latitude (Enter to leave blank): "
+set /p "LON=Longitude (Enter to leave blank): "
 
 if not exist "%DIR%" mkdir "%DIR%"
 cd /d "%DIR%"
@@ -42,10 +57,12 @@ set /p SENSOR_PATH=Sensor path (press Enter to use the first detected sensor):
 
 echo.
 echo Sending readings to %BASE% . Leave this window open while using the sensor.
+set "LOCATION_ARGS="
+if not "%LAT%"=="" if not "%LON%"=="" set "LOCATION_ARGS=--latitude %LAT% --longitude %LON%"
 if "%SENSOR_PATH%"=="" (
-  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%"
+  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%" %LOCATION_ARGS%
 ) else (
-  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%" --sensor-path "%SENSOR_PATH%"
+  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%" --sensor-path "%SENSOR_PATH%" %LOCATION_ARGS%
 )
 echo.
 echo The agent stopped.

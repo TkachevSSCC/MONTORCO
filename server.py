@@ -331,6 +331,8 @@ class RemoteReading(BaseModel):
     interval: float | None = None
     last_packet: str | None = None
     sent_at: float | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 remote_readings: dict[str, dict] = {}
@@ -390,7 +392,9 @@ def remote_reading(reading: RemoteReading) -> dict:
         remote_readings[reading.sensor_id] = {
             "sensor_id": reading.sensor_id,
             "meta": {**reading.meta, "remote": True,
-                     "product": reading.meta.get("product") or "CO2 monitor (remote)"},
+                     "product": reading.meta.get("product") or "CO2 monitor (remote)",
+                     "latitude": reading.latitude,
+                     "longitude": reading.longitude},
             "co2": reading.co2, "temp": reading.temp,
             "encoding": reading.encoding, "packets": reading.packets,
             "skipped": reading.skipped, "interval": reading.interval,
