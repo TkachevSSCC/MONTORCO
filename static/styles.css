@@ -404,13 +404,21 @@ main {
 }
 
 .gauge-scale {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 14px;
   margin-top: 10px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted-dim);
 }
+
+.gauge-scale span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.gauge-scale span:first-child { transform: none; }
+.gauge-scale span:last-child { transform: translateX(-100%); }
 
 .gauge-legend {
   display: flex;
@@ -668,8 +676,6 @@ footer {
   .quick { grid-template-columns: minmax(0, 1fr); }
 
   .reading { padding: 24px 20px 22px; }
-
-  .gauge-scale span:nth-child(even) { display: none; }
 
   .chart-foot { flex-direction: column; gap: 4px; }
 
