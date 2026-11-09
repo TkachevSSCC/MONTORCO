@@ -18,6 +18,7 @@ from pathlib import Path
 
 import hid
 from fastapi import FastAPI, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +34,7 @@ MAGIC_WORD = [((w << 4) & 0xFF) | (w >> 4) for w in bytearray(b"Htemp99e")]
 MAX_POINTS = 900          # ~75 минут при пакете раз в 5 секунд
 STALE_AFTER = 20.0        # секунд без пакетов -> датчик считается потерянным
 SCAN_EVERY = 4.0          # период поиска новых датчиков
+REMOTE_STALE_AFTER = 20.0
 
 CODE_CO2 = 0x50
 CODE_TEMP = 0x42
@@ -318,6 +320,44 @@ class SensorManager:
         }
 
 
+class RemoteReading(BaseModel):
+    sensor_id: str = Field(min_length=1, max_length=512)
+    meta: dict = Field(default_factory=dict)
+    co2: int | None = None
+    temp: float | None = None
+    encoding: str | None = None
+    packets: int = 0
+    skipped: int = 0
+    interval: float | None = None
+    last_packet: str | None = None
+    sent_at: float | None = None
+
+
+remote_readings: dict[str, dict] = {}
+remote_lock = threading.Lock()
+
+
+def remote_snapshot(item: dict) -> dict:
+    online = time.time() - item["received_at"] <= REMOTE_STALE_AFTER
+    co2 = item["co2"]
+    verdict_code, verdict = classify(co2)
+    return {
+        "id": f"remote:{item['sensor_id']}",
+        "meta": item["meta"],
+        "online": online,
+        "error": None if online else "удалённый агент не отвечает",
+        "encoding": item["encoding"], "co2": co2, "temp": item["temp"],
+        "verdict": verdict, "verdict_code": verdict_code,
+        "last_update": item["sent_at"], "packets": item["packets"],
+        "skipped": item["skipped"], "interval": item["interval"],
+        "last_packet": item["last_packet"],
+        "stats": {"co2_min": co2, "co2_max": co2, "co2_avg": co2,
+                   "samples": 1 if co2 is not None else 0,
+                   "temp_min": item["temp"], "temp_max": item["temp"]},
+        "history": item["history"],
+    }
+
+
 manager = SensorManager()
 manager.start()
 
@@ -326,7 +366,38 @@ app = FastAPI(title="CO2 live showcase", version="1.0.0")
 
 @app.get("/api/state")
 def api_state() -> dict:
-    return manager.snapshot()
+    local = manager.snapshot()
+    with remote_lock:
+        remote = [remote_snapshot(item) for item in remote_readings.values()]
+    sensors = local["sensors"] + remote
+    sensors.sort(key=lambda sensor: (not sensor["online"], sensor["meta"]["product"]))
+    return {
+        "time": time.time(),
+        "count": len(sensors),
+        "online": sum(1 for sensor in sensors if sensor["online"]),
+        "sensors": sensors,
+    }
+
+
+@app.post("/api/remote/reading")
+def remote_reading(reading: RemoteReading) -> dict:
+    now = time.time()
+    with remote_lock:
+        item = remote_readings.get(reading.sensor_id)
+        history = item["history"] if item else []
+        if reading.co2 is not None and (not history or now - history[-1][0] >= 1):
+            history = (history + [[reading.sent_at or now, reading.co2, reading.temp]])[-900:]
+        remote_readings[reading.sensor_id] = {
+            "sensor_id": reading.sensor_id,
+            "meta": {**reading.meta, "remote": True,
+                     "product": reading.meta.get("product") or "CO2 monitor (remote)"},
+            "co2": reading.co2, "temp": reading.temp,
+            "encoding": reading.encoding, "packets": reading.packets,
+            "skipped": reading.skipped, "interval": reading.interval,
+            "last_packet": reading.last_packet, "sent_at": reading.sent_at or now,
+            "received_at": now, "history": history,
+        }
+    return {"ok": True}
 
 
 @app.get("/api/stream")
@@ -335,7 +406,7 @@ async def api_stream(request: Request) -> StreamingResponse:
         while True:
             if await request.is_disconnected():
                 break
-            payload = json.dumps(manager.snapshot(), ensure_ascii=False)
+            payload = json.dumps(api_state(), ensure_ascii=False)
             yield f"data: {payload}\n\n"
             await asyncio.sleep(1.0)
 
@@ -346,9 +417,21 @@ async def api_stream(request: Request) -> StreamingResponse:
 
 @app.get("/healthz")
 def healthz() -> dict:
-    snapshot = manager.snapshot()
+    snapshot = api_state()
     return {"ok": snapshot["online"] > 0, "sensors": snapshot["count"],
             "online": snapshot["online"]}
+
+
+@app.get("/remote_agent.py")
+def download_remote_agent() -> FileResponse:
+    return FileResponse(BASE_DIR / "remote_agent.py", filename="remote_agent.py",
+                        media_type="text/x-python")
+
+
+@app.get("/start_agent.bat")
+def download_agent_launcher() -> FileResponse:
+    return FileResponse(BASE_DIR / "start_agent.bat", filename="start_agent.bat",
+                        media_type="application/octet-stream")
 
 
 @app.get("/")

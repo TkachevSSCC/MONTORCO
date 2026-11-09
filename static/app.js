@@ -388,12 +388,12 @@
     }
   }
 
-  fetch("/api/state")
+  fetch("api/state")
     .then((r) => r.json())
     .then(render)
     .catch(() => {});
 
-  const source = new EventSource("/api/stream");
+  const source = new EventSource("api/stream");
   source.onmessage = (event) => apply(event.data);
   source.onerror = () => {
     el.conn.classList.remove("is-live");
@@ -404,7 +404,7 @@
   // страховка: если SSE не поднялся, опрашиваем REST
   setInterval(() => {
     if (!state) {
-      fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+      fetch("api/state").then((r) => r.json()).then(render).catch(() => {});
     }
   }, 3000);
 
