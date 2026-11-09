@@ -28,6 +28,8 @@
 
   let state = null;
   let primary = null;
+  let chartHistory = [];
+  let historySensorId = null;
 
   // ───────────────────────── форматирование ─────────────────────────
   const nf = new Intl.NumberFormat("ru-RU");
@@ -111,11 +113,11 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    const points = (primary?.history || []).filter((p) => p[1] !== null && p[1] !== undefined);
+    const points = chartHistory.filter((p) => p[1] !== null && p[1] !== undefined);
     el.chartEmpty.hidden = points.length >= 2;
     if (points.length < 2) {
       el.chartStats.textContent = "мин — · среднее — · макс —";
-      el.chartNote.textContent = "10 минут";
+      el.chartNote.textContent = "24 часа";
       return;
     }
 
@@ -126,10 +128,10 @@
     const plotW = cssW - padL - padR;
     const plotH = cssH - padT - padB;
 
-    // окно: не длиннее 10 минут, но и не шире, чем есть данных
+    // Показываем весь доступный период, максимум последние 24 часа.
     const lastT = points[points.length - 1][0];
     const firstT = points[0][0];
-    const span = Math.min(600, Math.max(60, lastT - firstT));
+    const span = Math.min(86400, Math.max(60, lastT - firstT));
     const t0 = lastT - span;
 
     const visible = points.filter((p) => p[0] >= t0);
@@ -370,9 +372,35 @@
   }
 
   // ───────────────────────── общий рендер ─────────────────────────
+  function mergeLiveHistory(sensor) {
+    const live = sensor?.history || [];
+    if (!chartHistory.length) {
+      chartHistory = live.slice();
+      return;
+    }
+    const last = chartHistory[chartHistory.length - 1]?.[0] || 0;
+    chartHistory = chartHistory.concat(live.filter((point) => point[0] > last)).slice(-1800);
+  }
+
+  function loadHistory(sensor) {
+    if (!sensor || historySensorId === sensor.id) return;
+    historySensorId = sensor.id;
+    chartHistory = sensor.history || [];
+    fetch(`api/history?sensor_id=${encodeURIComponent(sensor.id)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.sensor_id !== historySensorId) return;
+        chartHistory = data.history || [];
+        drawChart();
+      })
+      .catch(() => {});
+  }
+
   function render(snapshot) {
     state = snapshot;
     primary = pickPrimary(snapshot);
+    loadHistory(primary);
+    mergeLiveHistory(primary);
     renderConnection();
     renderHero();
     renderGauge();

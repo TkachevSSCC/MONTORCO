@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import threading
 import time
 from collections import deque
@@ -31,7 +32,8 @@ MAGIC_TABLE = (0, 0, 0, 0, 0, 0, 0, 0)
 # ключ расшифровки для оригинальных TFA AirCO2ntrol
 MAGIC_WORD = [((w << 4) & 0xFF) | (w >> 4) for w in bytearray(b"Htemp99e")]
 
-MAX_POINTS = 900          # ~75 минут при пакете раз в 5 секунд
+HISTORY_SECONDS = 24 * 60 * 60
+MAX_POINTS = HISTORY_SECONDS + 60
 STALE_AFTER = 20.0        # секунд без пакетов -> датчик считается потерянным
 SCAN_EVERY = 4.0          # период поиска новых датчиков
 REMOTE_STALE_AFTER = 20.0
@@ -101,6 +103,61 @@ def classify(co2: int | None) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 # один датчик
 # --------------------------------------------------------------------------
+class HistoryStore:
+    """Небольшое постоянное хранилище последних 24 часов измерений."""
+
+    def __init__(self, path: Path):
+        self.lock = threading.Lock()
+        self.db = sqlite3.connect(path, check_same_thread=False)
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS readings ("
+            "sensor_id TEXT NOT NULL, timestamp REAL NOT NULL, "
+            "co2 INTEGER, temp REAL)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS readings_sensor_time "
+            "ON readings(sensor_id, timestamp)"
+        )
+        self.db.commit()
+        self.prune()
+
+    def prune(self, now: float | None = None) -> None:
+        cutoff = (now or time.time()) - HISTORY_SECONDS
+        with self.lock:
+            self.db.execute("DELETE FROM readings WHERE timestamp < ?", (cutoff,))
+            self.db.commit()
+
+    def load(self, sensor_id: str, max_points: int | None = None) -> list[list[float | int | None]]:
+        cutoff = time.time() - HISTORY_SECONDS
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT timestamp, co2, temp FROM readings "
+                "WHERE sensor_id = ? AND timestamp >= ? ORDER BY timestamp",
+                (sensor_id, cutoff),
+            ).fetchall()
+        if max_points and len(rows) > max_points:
+            last = len(rows) - 1
+            indices = {round(i * last / (max_points - 1)) for i in range(max_points)}
+            rows = [row for index, row in enumerate(rows) if index in indices]
+        return [[row[0], row[1], row[2]] for row in rows]
+
+    def append(self, sensor_id: str, point: list) -> None:
+        with self.lock:
+            self.db.execute(
+                "INSERT INTO readings(sensor_id, timestamp, co2, temp) VALUES (?, ?, ?, ?)",
+                (sensor_id, point[0], point[1], point[2]),
+            )
+            self.db.execute(
+                "DELETE FROM readings WHERE timestamp < ?",
+                (time.time() - HISTORY_SECONDS,),
+            )
+            self.db.commit()
+
+
+history_store = HistoryStore(BASE_DIR / "readings.sqlite3")
+
+
 class Sensor:
     def __init__(self, info: dict):
         raw_path = info.get("path", b"")
@@ -118,7 +175,7 @@ class Sensor:
         }
 
         self.lock = threading.Lock()
-        self.history: deque = deque(maxlen=MAX_POINTS)
+        self.history: deque = deque(history_store.load(self.id), maxlen=MAX_POINTS)
         self.co2: int | None = None
         self.temp: float | None = None
         self.last_update: float | None = None
@@ -232,7 +289,9 @@ class Sensor:
 
             if now - self._last_point >= 1.0:
                 self._last_point = now
-                self.history.append([now, self.co2, self.temp])
+                point = [now, self.co2, self.temp]
+                self.history.append(point)
+                history_store.append(self.id, point)
 
     # -- снимок для API ----------------------------------------------------
     def snapshot(self) -> dict:
@@ -264,7 +323,7 @@ class Sensor:
                     "temp_max": round(max(temp_values), 2) if temp_values else None,
                 },
                 "history": [[round(p[0], 3), p[1], None if p[2] is None else round(p[2], 2)]
-                            for p in self.history],
+                            for p in list(self.history)[-600:]],
             }
 
 
@@ -356,7 +415,7 @@ def remote_snapshot(item: dict) -> dict:
         "stats": {"co2_min": co2, "co2_max": co2, "co2_avg": co2,
                    "samples": 1 if co2 is not None else 0,
                    "temp_min": item["temp"], "temp_max": item["temp"]},
-        "history": item["history"],
+        "history": item["history"][-600:],
     }
 
 
@@ -381,14 +440,24 @@ def api_state() -> dict:
     }
 
 
+@app.get("/api/history")
+def api_history(sensor_id: str) -> dict:
+    return {
+        "sensor_id": sensor_id,
+        "history": history_store.load(sensor_id, max_points=1800),
+    }
+
+
 @app.post("/api/remote/reading")
 def remote_reading(reading: RemoteReading) -> dict:
     now = time.time()
     with remote_lock:
         item = remote_readings.get(reading.sensor_id)
-        history = item["history"] if item else []
+        history = item["history"] if item else history_store.load(f"remote:{reading.sensor_id}")
         if reading.co2 is not None and (not history or now - history[-1][0] >= 1):
-            history = (history + [[reading.sent_at or now, reading.co2, reading.temp]])[-900:]
+            point = [reading.sent_at or now, reading.co2, reading.temp]
+            history = (history + [point])[-MAX_POINTS:]
+            history_store.append(f"remote:{reading.sensor_id}", point)
         remote_readings[reading.sensor_id] = {
             "sensor_id": reading.sensor_id,
             "meta": {**reading.meta, "remote": True,
