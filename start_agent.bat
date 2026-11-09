@@ -56,17 +56,17 @@ echo.
 set /p SENSOR_PATH=Sensor path (press Enter to use the first detected sensor):
 
 echo.
-echo Sending readings to %BASE% . Leave this window open while using the sensor.
+echo Starting the sensor agent in the background...
 set "LOCATION_ARGS="
 if not "%LAT%"=="" if not "%LON%"=="" set "LOCATION_ARGS=--latitude %LAT% --longitude %LON%"
 if "%SENSOR_PATH%"=="" (
-  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%" %LOCATION_ARGS%
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath '%CD%\.venv\Scripts\pythonw.exe' -ArgumentList 'remote_agent.py --url %BASE% %LOCATION_ARGS%' -WorkingDirectory '%CD%' -WindowStyle Hidden -PassThru; Write-Host ('Agent started in background (PID ' + $p.Id + ').')"
 ) else (
-  ".venv\Scripts\python.exe" remote_agent.py --url "%BASE%" --sensor-path "%SENSOR_PATH%" %LOCATION_ARGS%
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath '%CD%\.venv\Scripts\pythonw.exe' -ArgumentList 'remote_agent.py --url %BASE% --sensor-path %SENSOR_PATH% %LOCATION_ARGS%' -WorkingDirectory '%CD%' -WindowStyle Hidden -PassThru; Write-Host ('Agent started in background (PID ' + $p.Id + ').')"
 )
 echo.
-echo The agent stopped.
-pause
+echo The agent is running in the background. This window can be closed.
+timeout /t 3 /nobreak >nul
 exit /b
 
 :python_error
