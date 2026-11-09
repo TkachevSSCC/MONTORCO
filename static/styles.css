@@ -159,6 +159,53 @@ main {
   font-size: 15.5px;
 }
 
+.agent-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 30px;
+  padding: 12px 16px;
+  border: 1px solid rgba(61, 220, 151, 0.35);
+  border-radius: var(--r-md);
+  background: rgba(61, 220, 151, 0.08);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.agent-download:hover,
+.agent-download:focus-visible {
+  border-color: var(--excellent);
+  background: rgba(61, 220, 151, 0.15);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.agent-download-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--excellent);
+  color: #0b1013;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.agent-download b,
+.agent-download small {
+  display: block;
+}
+
+.agent-download b { font-size: 13px; }
+
+.agent-download small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .hero-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
