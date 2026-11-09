@@ -651,8 +651,6 @@ footer {
   color: var(--muted-dim);
 }
 
-.foot-sep { opacity: 0.5; }
-
 /* ───────────────────────── адаптив ───────────────────────── */
 @media (max-width: 900px) {
   .hero {
