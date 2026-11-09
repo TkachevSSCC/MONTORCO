@@ -98,7 +98,12 @@
     <section class="card chart-card">
       <div class="card-head">
         <h2>История измерений</h2>
-        <span class="card-note" id="chart-note">10 минут</span>
+        <div class="chart-controls" role="group" aria-label="Период графика">
+          <button class="period-button" type="button" data-period="3600">1 ч</button>
+          <button class="period-button" type="button" data-period="21600">6 ч</button>
+          <button class="period-button" type="button" data-period="43200">12 ч</button>
+          <button class="period-button is-active" type="button" data-period="86400">24 ч</button>
+        </div>
       </div>
       <div class="chart-wrap">
         <canvas id="chart" height="260"></canvas>

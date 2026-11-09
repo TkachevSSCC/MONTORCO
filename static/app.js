@@ -21,6 +21,7 @@
     chartNote: $("chart-note"),
     chartStats: $("chart-stats"),
     chartEmpty: $("chart-empty"),
+    periodButtons: document.querySelectorAll(".period-button"),
     sensors: $("sensors"),
     sensorsNote: $("sensors-note"),
     telemetry: $("telemetry"),
@@ -30,6 +31,7 @@
   let primary = null;
   let chartHistory = [];
   let historySensorId = null;
+  let chartPeriod = 86400;
 
   // ───────────────────────── форматирование ─────────────────────────
   const nf = new Intl.NumberFormat("ru-RU");
@@ -37,6 +39,7 @@
   const fmtInt = (v) => (v === null || v === undefined ? "—" : nf.format(Math.round(v)));
   const fmtTemp = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} °C`);
   const fmtSec = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} с`);
+  const periodLabel = (seconds) => seconds >= 86400 ? "24 часа" : `${seconds / 3600} ч`;
 
   function ago(ts) {
     if (!ts) return "—";
@@ -113,11 +116,14 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    const points = chartHistory.filter((p) => p[1] !== null && p[1] !== undefined);
+    const allPoints = chartHistory.filter((p) => p[1] !== null && p[1] !== undefined);
+    const latest = allPoints[allPoints.length - 1]?.[0] || Date.now() / 1000;
+    const periodStart = latest - chartPeriod;
+    const points = allPoints.filter((p) => p[0] >= periodStart);
     el.chartEmpty.hidden = points.length >= 2;
     if (points.length < 2) {
       el.chartStats.textContent = "мин — · среднее — · макс —";
-      el.chartNote.textContent = "24 часа";
+      el.chartNote.textContent = periodLabel(chartPeriod);
       return;
     }
 
@@ -131,7 +137,7 @@
     // Показываем весь доступный период, максимум последние 24 часа.
     const lastT = points[points.length - 1][0];
     const firstT = points[0][0];
-    const span = Math.min(86400, Math.max(60, lastT - firstT));
+    const span = Math.min(chartPeriod, Math.max(60, lastT - firstT));
     const t0 = lastT - span;
 
     const visible = points.filter((p) => p[0] >= t0);
@@ -240,8 +246,7 @@
     const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
     el.chartStats.textContent =
       `мин ${fmtInt(rawMin)} · среднее ${fmtInt(avg)} · макс ${fmtInt(rawMax)}`;
-    const minutes = Math.max(1, Math.round(span / 60));
-    el.chartNote.textContent = `${minutes} мин`;
+    el.chartNote.textContent = periodLabel(chartPeriod);
   }
 
   // ───────────────────────── список датчиков ─────────────────────────
@@ -408,6 +413,14 @@
     renderTelemetry();
     drawChart();
   }
+
+  el.periodButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      chartPeriod = Number(button.dataset.period);
+      el.periodButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+      drawChart();
+    });
+  });
 
   // ───────────────────────── поток данных ─────────────────────────
   function apply(data) {
