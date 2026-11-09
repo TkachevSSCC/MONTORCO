@@ -16,6 +16,7 @@
     deviceSerial: $("device-serial"),
     deviceLink: $("device-link"),
     deviceCoordinates: $("device-coordinates"),
+    sensorPicker: $("sensor-picker"),
     gaugeMarker: $("gauge-marker"),
     gaugeNote: $("gauge-note"),
     chart: $("chart"),
@@ -30,6 +31,7 @@
 
   let state = null;
   let primary = null;
+  let selectedSensorId = localStorage.getItem("montorco-selected-sensor") || "";
   let chartHistory = [];
   let historySensorId = null;
   let chartPeriod = 86400;
@@ -64,7 +66,37 @@
   // ───────────────────────── выбор датчика ─────────────────────────
   function pickPrimary(snapshot) {
     if (!snapshot || !snapshot.sensors.length) return null;
-    return snapshot.sensors.find((s) => s.online) || snapshot.sensors[0];
+    const selected = snapshot.sensors.find((sensor) => sensor.id === selectedSensorId);
+    if (selected) return selected;
+    const fallback = snapshot.sensors.find((sensor) => sensor.online) || snapshot.sensors[0];
+    selectedSensorId = fallback.id;
+    localStorage.setItem("montorco-selected-sensor", selectedSensorId);
+    return fallback;
+  }
+
+  function renderSensorPicker(snapshot) {
+    const sensors = snapshot?.sensors || [];
+    const nameCounts = new Map();
+    for (const sensor of sensors) {
+      const name = sensor.meta.name || sensor.meta.product || "CO₂ датчик";
+      nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+    }
+    const options = sensors.map((sensor) => {
+      const name = sensor.meta.name || sensor.meta.product || "CO₂ датчик";
+      const serial = sensor.meta.serial && sensor.meta.serial !== "—" ? sensor.meta.serial : sensor.id.slice(-6);
+      const suffix = nameCounts.get(name) > 1 ? ` · ${serial}` : "";
+      return { id: sensor.id, label: `${name}${suffix}${sensor.online ? "" : " · нет связи"}` };
+    });
+    el.sensorPicker.replaceChildren();
+    if (!options.length) {
+      el.sensorPicker.add(new Option("датчики не найдены", ""));
+      el.sensorPicker.disabled = true;
+      return;
+    }
+    el.sensorPicker.disabled = false;
+    for (const option of options) {
+      el.sensorPicker.add(new Option(option.label, option.id));
+    }
   }
 
   // ───────────────────────── верхний блок ─────────────────────────
@@ -411,7 +443,9 @@
 
   function render(snapshot) {
     state = snapshot;
+    renderSensorPicker(snapshot);
     primary = pickPrimary(snapshot);
+    el.sensorPicker.value = primary?.id || "";
     loadHistory(primary);
     mergeLiveHistory(primary);
     renderConnection();
@@ -421,6 +455,14 @@
     renderTelemetry();
     drawChart();
   }
+
+  el.sensorPicker.addEventListener("change", () => {
+    selectedSensorId = el.sensorPicker.value;
+    localStorage.setItem("montorco-selected-sensor", selectedSensorId);
+    historySensorId = null;
+    chartHistory = [];
+    if (state) render(state);
+  });
 
   el.periodButtons.forEach((button) => {
     button.addEventListener("click", () => {

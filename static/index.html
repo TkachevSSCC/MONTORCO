@@ -42,6 +42,10 @@
     </div>
 
     <div class="hero-readout">
+      <label class="sensor-picker-label" for="sensor-picker">Показывать датчик</label>
+      <select class="sensor-picker" id="sensor-picker" aria-label="Выберите датчик для главного показания и графика">
+        <option value="">поиск датчиков…</option>
+      </select>
       <div class="reading" id="reading-card">
         <div class="reading-label">концентрация CO₂</div>
         <div class="reading-value"><span id="co2-value">—</span><span class="reading-unit">ppm</span></div>

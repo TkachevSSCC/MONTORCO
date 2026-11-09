@@ -185,7 +185,30 @@ main {
 }
 
 /* ───────────── большой показатель ───────────── */
-.hero-readout { display: grid; gap: 14px; }
+.hero-readout { display: grid; gap: 8px; }
+
+.sensor-picker-label {
+  color: var(--muted-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.sensor-picker {
+  width: 100%;
+  min-height: 42px;
+  margin-bottom: 6px;
+  padding: 8px 36px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: 13px var(--mono);
+}
+
+.sensor-picker:focus-visible {
+  outline: 2px solid var(--excellent);
+  outline-offset: 2px;
+}
 
 .reading {
   position: relative;
