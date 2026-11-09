@@ -368,6 +368,7 @@
 
     const m = primary.meta;
     const rows = [
+      ["Имя устройства", m.name || m.product || "CO₂ датчик"],
       ["Изготовитель", m.manufacturer],
       ["Модель", m.product],
       ["Серийный номер", m.serial],

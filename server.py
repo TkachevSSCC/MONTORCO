@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import sqlite3
 import threading
@@ -162,7 +163,9 @@ class Sensor:
     def __init__(self, info: dict):
         raw_path = info.get("path", b"")
         self.id = raw_path.decode("utf-8", "replace") if isinstance(raw_path, bytes) else str(raw_path)
+        device_tag = hashlib.sha256(self.id.encode()).hexdigest()[:6].upper()
         self.info = {
+            "name": f"CO₂ датчик {device_tag}",
             "manufacturer": info.get("manufacturer_string") or "—",
             "product": info.get("product_string") or "CO2 monitor",
             "serial": info.get("serial_number") or "—",
@@ -460,7 +463,9 @@ def remote_reading(reading: RemoteReading) -> dict:
             history_store.append(f"remote:{reading.sensor_id}", point)
         remote_readings[reading.sensor_id] = {
             "sensor_id": reading.sensor_id,
-            "meta": {**reading.meta, "remote": True,
+            "meta": {**reading.meta,
+                     "name": reading.meta.get("name") or f"CO₂ датчик {reading.sensor_id[-6:].upper()}",
+                     "remote": True,
                      "product": reading.meta.get("product") or "CO2 monitor (remote)",
                      "latitude": reading.latitude,
                      "longitude": reading.longitude},
