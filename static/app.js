@@ -32,6 +32,7 @@
   let state = null;
   let primary = null;
   let selectedSensorId = localStorage.getItem("montorco-selected-sensor") || "";
+  const sensorNames = new Map();
   let chartHistory = [];
   let historySensorId = null;
   let chartPeriod = 86400;
@@ -74,15 +75,28 @@
     return fallback;
   }
 
+  function sensorName(sensor) {
+    if (!sensor) return "CO₂ датчик";
+    const incoming = sensor.meta?.name;
+    if (incoming) {
+      sensorNames.set(sensor.id, incoming);
+      return incoming;
+    }
+    if (!sensorNames.has(sensor.id)) {
+      sensorNames.set(sensor.id, `CO₂ датчик ${sensor.id.slice(-6).toUpperCase()}`);
+    }
+    return sensorNames.get(sensor.id);
+  }
+
   function renderSensorPicker(snapshot) {
     const sensors = snapshot?.sensors || [];
     const nameCounts = new Map();
     for (const sensor of sensors) {
-      const name = sensor.meta.name || sensor.meta.product || "CO₂ датчик";
+      const name = sensorName(sensor);
       nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
     }
     const options = sensors.map((sensor) => {
-      const name = sensor.meta.name || sensor.meta.product || "CO₂ датчик";
+      const name = sensorName(sensor);
       const serial = sensor.meta.serial && sensor.meta.serial !== "—" ? sensor.meta.serial : sensor.id.slice(-6);
       const suffix = nameCounts.get(name) > 1 ? ` · ${serial}` : "";
       return { id: sensor.id, label: `${name}${suffix}${sensor.online ? "" : " · нет связи"}` };
@@ -124,7 +138,7 @@
     el.verdict.textContent = s.online ? s.verdict : "нет связи";
     el.reading.dataset.state = s.online ? s.verdict_code : "unknown";
 
-    el.deviceName.textContent = s.meta.name || s.meta.product;
+    el.deviceName.textContent = sensorName(s);
     el.deviceSerial.textContent = s.meta.serial;
     el.deviceLink.textContent = `USB HID · ${s.meta.vid}:${s.meta.pid}`;
     el.deviceCoordinates.textContent = coordinates(s.meta);
@@ -316,7 +330,7 @@
 
       const name = document.createElement("div");
       name.className = "sensor-name";
-      name.textContent = s.meta.name || s.meta.product;
+       name.textContent = sensorName(s);
 
       const st = document.createElement("div");
       st.className = `sensor-state ${s.online ? "online" : "offline"}`;
@@ -368,7 +382,7 @@
 
     const m = primary.meta;
     const rows = [
-      ["Имя устройства", m.name || m.product || "CO₂ датчик"],
+      ["Имя устройства", sensorName(primary)],
       ["Изготовитель", m.manufacturer],
       ["Модель", m.product],
       ["Серийный номер", m.serial],
