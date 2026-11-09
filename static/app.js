@@ -15,6 +15,7 @@
     deviceName: $("device-name"),
     deviceSerial: $("device-serial"),
     deviceLink: $("device-link"),
+    deviceCoordinates: $("device-coordinates"),
     gaugeMarker: $("gauge-marker"),
     gaugeNote: $("gauge-note"),
     chart: $("chart"),
@@ -40,6 +41,11 @@
   const fmtTemp = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} °C`);
   const fmtSec = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} с`);
   const periodLabel = (seconds) => seconds >= 86400 ? "24 часа" : `${seconds / 3600} ч`;
+
+  function coordinates(meta) {
+    if (meta?.latitude == null || meta?.longitude == null) return "не указаны";
+    return `${Number(meta.latitude).toFixed(5)}, ${Number(meta.longitude).toFixed(5)}`;
+  }
 
   function ago(ts) {
     if (!ts) return "—";
@@ -73,6 +79,7 @@
       el.deviceName.textContent = "не подключён";
       el.deviceSerial.textContent = "—";
       el.deviceLink.textContent = "—";
+      el.deviceCoordinates.textContent = "—";
       return;
     }
 
@@ -88,6 +95,7 @@
     el.deviceName.textContent = s.meta.product;
     el.deviceSerial.textContent = s.meta.serial;
     el.deviceLink.textContent = `USB HID · ${s.meta.vid}:${s.meta.pid}`;
+    el.deviceCoordinates.textContent = coordinates(s.meta);
   }
 
   // ───────────────────────── шкала ─────────────────────────
@@ -304,7 +312,7 @@
 
       const path = document.createElement("div");
       path.className = "sensor-path";
-      path.textContent = `${s.meta.vid}:${s.meta.pid} · ${s.meta.serial}`;
+      path.textContent = `${s.meta.vid}:${s.meta.pid} · ${s.meta.serial} · ${coordinates(s.meta)}`;
 
       card.append(top, values, path);
       el.sensors.append(card);
