@@ -53,7 +53,7 @@ echo.
 echo Looking for a supported CO2 sensor...
 ".venv\Scripts\python.exe" remote_agent.py --list
 echo.
-set /p SENSOR_PATH=Sensor path (press Enter to use the first detected sensor):
+set /p SENSOR_PATH=Sensor path (press Enter to use all detected sensors):
 
 echo.
 echo Starting the sensor agent in the background...

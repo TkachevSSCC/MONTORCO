@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import threading
 import time
 from urllib.request import Request, urlopen
 
@@ -67,17 +68,14 @@ def send(url: str, payload: dict) -> None:
             raise RuntimeError(f"server returned HTTP {response.status}")
 
 
-def run(args: argparse.Namespace) -> None:
-    found = devices()
-    while not found:
-        print("Датчик не найден; повторный поиск через 4 секунды...", flush=True)
-        time.sleep(4)
-        found = devices()
-    info = next((item for item in found if args.sensor_path in str(item.get("path", ""))), found[0])
+def run_device(args: argparse.Namespace, info: dict) -> None:
     path = info.get("path", b"")
     raw_path = path.decode("utf-8", "replace") if isinstance(path, bytes) else str(path)
-    sensor_id = f"sensor-{hashlib.sha256(raw_path.encode()).hexdigest()[:16]}"
+    path_hash = hashlib.sha256(raw_path.encode()).hexdigest().upper()
+    sensor_id = f"sensor-{path_hash[:16].lower()}"
+    display_name = f"CO₂ датчик {path_hash[:6]}"
     meta = {
+        "name": display_name,
         "manufacturer": info.get("manufacturer_string"),
         "product": info.get("product_string") or "CO2 monitor",
         "serial": "—",
@@ -143,12 +141,36 @@ def run(args: argparse.Namespace) -> None:
                             "sent_at": time.time(),
                         })
                         last_send = time.time()
-                        print(f"CO2={co2} ppm, temp={temp} C", flush=True)
+                        print(f"{display_name}: CO2={co2} ppm, temp={temp} C", flush=True)
                     except Exception as exc:
                         print(f"Сервер недоступен; повторю отправку: {exc}", flush=True)
                         time.sleep(2)
     finally:
         device.close()
+
+
+def run(args: argparse.Namespace) -> None:
+    found = devices()
+    while not found:
+        print("Датчик не найден; повторный поиск через 4 секунды...", flush=True)
+        time.sleep(4)
+        found = devices()
+
+    if args.sensor_path:
+        selected = [item for item in found if args.sensor_path in str(item.get("path", ""))]
+        if not selected:
+            raise SystemExit(f"Датчик с путём {args.sensor_path!r} не найден.")
+        selected = selected[:1]
+    else:
+        selected = found
+
+    workers = []
+    for info in selected:
+        worker = threading.Thread(target=run_device, args=(args, info), daemon=True)
+        worker.start()
+        workers.append(worker)
+    for worker in workers:
+        worker.join()
 
 
 def main() -> None:

@@ -92,7 +92,7 @@
     el.verdict.textContent = s.online ? s.verdict : "нет связи";
     el.reading.dataset.state = s.online ? s.verdict_code : "unknown";
 
-    el.deviceName.textContent = s.meta.product;
+    el.deviceName.textContent = s.meta.name || s.meta.product;
     el.deviceSerial.textContent = s.meta.serial;
     el.deviceLink.textContent = `USB HID · ${s.meta.vid}:${s.meta.pid}`;
     el.deviceCoordinates.textContent = coordinates(s.meta);
@@ -284,7 +284,7 @@
 
       const name = document.createElement("div");
       name.className = "sensor-name";
-      name.textContent = s.meta.product;
+      name.textContent = s.meta.name || s.meta.product;
 
       const st = document.createElement("div");
       st.className = `sensor-state ${s.online ? "online" : "offline"}`;
