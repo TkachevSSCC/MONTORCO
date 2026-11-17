@@ -9,6 +9,11 @@ set "PYTHON="
 
 if not exist "%DIR%" mkdir "%DIR%" >nul 2>nul
 if not exist "%DIR%" goto :setup_error
+copy /y "%~f0" "%DIR%\start_agent.bat" >nul
+if errorlevel 1 goto :setup_error
+echo Registering agent at user logon...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$startup = [Environment]::GetFolderPath('Startup'); $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut((Join-Path $startup 'MONTORCO CO2 Agent.lnk')); $shortcut.TargetPath = Join-Path $env:USERPROFILE 'MONTORCO-Agent\start_agent.bat'; $shortcut.WorkingDirectory = Join-Path $env:USERPROFILE 'MONTORCO-Agent'; $shortcut.WindowStyle = 7; $shortcut.Save()" >>"%LOG%" 2>&1
+if errorlevel 1 goto :setup_error
 cd /d "%DIR%"
 echo MONTORCO agent setup >"%LOG%"
 
