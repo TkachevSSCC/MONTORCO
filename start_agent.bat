@@ -12,6 +12,13 @@ if not exist "%DIR%" goto :setup_error
 cd /d "%DIR%"
 echo MONTORCO agent setup >"%LOG%"
 
+echo Checking for an already running agent...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$pythonw = [IO.Path]::GetFullPath('%DIR%\.venv\Scripts\pythonw.exe'); $running = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.ExecutablePath -ieq $pythonw -and $_.CommandLine -match 'remote_agent\.py' } | Select-Object -First 1; if ($running) { exit 0 } else { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+  echo Agent is already running.
+  exit /b 0
+)
+
 echo [1/5] Checking Python 3...
 where py >nul 2>nul
 if not errorlevel 1 (
@@ -29,8 +36,10 @@ if not defined PYTHON call :install_python
 if not defined PYTHON goto :setup_error
 
 echo [2/5] Downloading agent...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest '%BASE%/remote_agent.py' -OutFile '%DIR%\remote_agent.py' -TimeoutSec 30" >>"%LOG%" 2>&1
-if errorlevel 1 goto :setup_error
+if not exist "%DIR%\remote_agent.py" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest '%BASE%/remote_agent.py' -OutFile '%DIR%\remote_agent.py' -TimeoutSec 30" >>"%LOG%" 2>&1
+  if errorlevel 1 goto :setup_error
+)
 
 echo [3/5] Preparing Python environment...
 if not exist ".venv\Scripts\python.exe" (
