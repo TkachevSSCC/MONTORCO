@@ -11,18 +11,9 @@ if not exist "%DIR%" mkdir "%DIR%" >nul 2>nul
 if not exist "%DIR%" goto :setup_error
 copy /y "%~f0" "%DIR%\start_agent.bat" >nul
 if errorlevel 1 goto :setup_error
-echo Registering agent at user logon...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$startup = [Environment]::GetFolderPath('Startup'); $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut((Join-Path $startup 'MONTORCO CO2 Agent.lnk')); $shortcut.TargetPath = Join-Path $env:USERPROFILE 'MONTORCO-Agent\start_agent.bat'; $shortcut.WorkingDirectory = Join-Path $env:USERPROFILE 'MONTORCO-Agent'; $shortcut.WindowStyle = 7; $shortcut.Save()" >>"%LOG%" 2>&1
-if errorlevel 1 goto :setup_error
 cd /d "%DIR%"
+if errorlevel 1 goto :setup_error
 echo MONTORCO agent setup >"%LOG%"
-
-echo Checking for an already running agent...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$pythonw = [IO.Path]::GetFullPath('%DIR%\.venv\Scripts\pythonw.exe'); $running = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.ExecutablePath -ieq $pythonw -and $_.CommandLine -match 'remote_agent\.py' } | Select-Object -First 1; if ($running) { exit 0 } else { exit 1 }" >nul 2>&1
-if not errorlevel 1 (
-  echo Agent is already running.
-  exit /b 0
-)
 
 echo [1/5] Checking Python 3...
 where py >nul 2>nul
@@ -41,10 +32,8 @@ if not defined PYTHON call :install_python
 if not defined PYTHON goto :setup_error
 
 echo [2/5] Downloading agent...
-if not exist "%DIR%\remote_agent.py" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest '%BASE%/remote_agent.py' -OutFile '%DIR%\remote_agent.py' -TimeoutSec 30" >>"%LOG%" 2>&1
-  if errorlevel 1 goto :setup_error
-)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest '%BASE%/remote_agent.py' -OutFile '%DIR%\remote_agent.py' -TimeoutSec 30" >>"%LOG%" 2>&1
+if errorlevel 1 goto :setup_error
 
 echo [3/5] Preparing Python environment...
 if not exist ".venv\Scripts\python.exe" (
@@ -56,13 +45,14 @@ echo [4/5] Installing USB support (may take a minute)...
 ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check hidapi >>"%LOG%" 2>&1
 if errorlevel 1 goto :setup_error
 
-set "LOCATION_ARGS="
-for /f "tokens=1,2 delims=," %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $ProgressPreference='SilentlyContinue'; $g=Invoke-RestMethod 'https://ipapi.co/json/' -TimeoutSec 5; if ($null -ne $g.latitude -and $null -ne $g.longitude) { [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0},{1}', $g.latitude, $g.longitude) } } catch {}"') do set "LOCATION_ARGS=--latitude %%A --longitude %%B"
-
-echo [5/5] Starting all detected sensors in background...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath '%DIR%\.venv\Scripts\pythonw.exe' -ArgumentList 'remote_agent.py --url %BASE% %LOCATION_ARGS%' -WorkingDirectory '%DIR%' -WindowStyle Hidden -PassThru; Set-Content -Path '%DIR%\agent.pid' -Value $p.Id"
+echo [5/6] Registering agent to start at user logon...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $python=Join-Path $env:USERPROFILE 'MONTORCO-Agent\.venv\Scripts\pythonw.exe'; $agent=Join-Path $env:USERPROFILE 'MONTORCO-Agent\remote_agent.py'; $action=New-ScheduledTaskAction -Execute $python -Argument ('"' + $agent + '" --url %BASE%'); $trigger=New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1); Register-ScheduledTask -TaskName 'MONTORCO CO2 Agent' -Action $action -Trigger $trigger -Settings $settings -Description 'Starts the MONTORCO CO2 sensor agent when this user logs in.' -Force | Out-Null"
 if errorlevel 1 goto :setup_error
-echo Agent started. Setup log: "%LOG%"
+
+echo [6/6] Starting agent in background...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskName 'MONTORCO CO2 Agent'; if ((Get-ScheduledTaskInfo -TaskName 'MONTORCO CO2 Agent' -ErrorAction SilentlyContinue).State -eq 'Running') { exit 0 }; Start-ScheduledTask -InputObject $task; Start-Sleep -Seconds 2; if ((Get-ScheduledTaskInfo -TaskName 'MONTORCO CO2 Agent').State -ne 'Running') { exit 1 }"
+if errorlevel 1 goto :setup_error
+echo Agent started hidden. It will start automatically at each user logon.
 timeout /t 3 /nobreak >nul
 exit /b 0
 
@@ -92,4 +82,6 @@ if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "PYTHON="%Loc
 exit /b 0
 
 :setup_error
+echo Setup failed. See "%LOG%" for details.
+pause
 exit /b 1

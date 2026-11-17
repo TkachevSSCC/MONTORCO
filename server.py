@@ -35,6 +35,7 @@ MAGIC_WORD = [((w << 4) & 0xFF) | (w >> 4) for w in bytearray(b"Htemp99e")]
 
 HISTORY_SECONDS = 24 * 60 * 60
 MAX_POINTS = HISTORY_SECONDS + 60
+DEVICE_RETENTION_SECONDS = 48 * 60 * 60
 STALE_AFTER = 20.0        # секунд без пакетов -> датчик считается потерянным
 SCAN_EVERY = 4.0          # период поиска новых датчиков
 REMOTE_STALE_AFTER = 20.0
@@ -155,6 +156,11 @@ class HistoryStore:
             )
             self.db.commit()
 
+    def delete_sensor(self, sensor_id: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM readings WHERE sensor_id = ?", (sensor_id,))
+            self.db.commit()
+
 
 history_store = HistoryStore(BASE_DIR / "readings.sqlite3")
 
@@ -181,6 +187,7 @@ class Sensor:
         self.history: deque = deque(history_store.load(self.id), maxlen=MAX_POINTS)
         self.co2: int | None = None
         self.temp: float | None = None
+        self.discovered_at = time.time()
         self.last_update: float | None = None
         self.last_packet: str | None = None
         self.encoding: str | None = None
@@ -362,7 +369,23 @@ class SensorManager:
     def _run(self) -> None:
         while not self._stop.is_set():
             self._scan()
+            self._prune_inactive()
             self._stop.wait(SCAN_EVERY)
+
+    def _prune_inactive(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with self.lock:
+            expired = []
+            for sensor_id, sensor in self.sensors.items():
+                with sensor.lock:
+                    last_seen = sensor.last_update or sensor.discovered_at
+                if now - last_seen > DEVICE_RETENTION_SECONDS:
+                    sensor.stop()
+                    expired.append(sensor_id)
+            for sensor_id in expired:
+                del self.sensors[sensor_id]
+        for sensor_id in expired:
+            history_store.delete_sensor(sensor_id)
 
     def stop(self) -> None:
         self._stop.set()
@@ -432,6 +455,13 @@ app = FastAPI(title="CO2 live showcase", version="1.0.0")
 def api_state() -> dict:
     local = manager.snapshot()
     with remote_lock:
+        now = time.time()
+        expired = [sensor_id for sensor_id, item in remote_readings.items()
+                   if now - item["received_at"] > DEVICE_RETENTION_SECONDS]
+        for sensor_id in expired:
+            del remote_readings[sensor_id]
+        for sensor_id in expired:
+            history_store.delete_sensor(f"remote:{sensor_id}")
         remote = [remote_snapshot(item) for item in remote_readings.values()]
     sensors = local["sensors"] + remote
     sensors.sort(key=lambda sensor: (not sensor["online"], sensor["meta"]["product"]))
@@ -455,6 +485,12 @@ def api_history(sensor_id: str) -> dict:
 def remote_reading(reading: RemoteReading) -> dict:
     now = time.time()
     with remote_lock:
+        expired = [sensor_id for sensor_id, item in remote_readings.items()
+                   if now - item["received_at"] > DEVICE_RETENTION_SECONDS]
+        for sensor_id in expired:
+            del remote_readings[sensor_id]
+        for sensor_id in expired:
+            history_store.delete_sensor(f"remote:{sensor_id}")
         item = remote_readings.get(reading.sensor_id)
         history = item["history"] if item else history_store.load(f"remote:{reading.sensor_id}")
         if reading.co2 is not None and (not history or now - history[-1][0] >= 1):
@@ -504,6 +540,18 @@ def healthz() -> dict:
 def download_remote_agent() -> FileResponse:
     return FileResponse(BASE_DIR / "remote_agent.py", filename="remote_agent.py",
                         media_type="text/x-python")
+
+
+@app.get("/remove_agent.ps1")
+def download_agent_remover() -> FileResponse:
+    return FileResponse(BASE_DIR / "remove_agent.ps1", filename="remove_agent.ps1",
+                        media_type="application/octet-stream")
+
+
+@app.get("/remove_agent.bat")
+def download_agent_removal_launcher() -> FileResponse:
+    return FileResponse(BASE_DIR / "remove_agent.bat", filename="remove_agent.bat",
+                        media_type="application/octet-stream")
 
 
 @app.get("/start_agent.bat")

@@ -88,89 +88,152 @@ def run_device(args: argparse.Namespace, info: dict) -> None:
         "latitude": args.latitude,
         "longitude": args.longitude,
     }
-    device = hid.device()
-    device.open_path(path)
-    try:
-        try:
-            device.send_feature_report(MAGIC_TABLE)
-        except Exception:
-            pass
-        device.set_nonblocking(0)
-        co2 = None
-        temp = None
-        packets = 0
-        skipped = 0
-        last_packet = None
-        last_co2_at = None
-        interval = None
-        last_send = 0.0
-        while True:
-            raw = device.read(8, 1000)
-            if raw:
-                raw = [int(byte) for byte in raw]
-                packets += 1
-                last_packet = " ".join(f"{byte:02x}" for byte in raw)
-                current_co2, current_temp = decode(raw)
-                encoding = "plain"
-                if current_co2 is None and current_temp is None:
-                    current_co2, current_temp = decode(decrypt(raw))
-                    encoding = "encrypted"
-                if current_co2 is None and current_temp is None:
-                    skipped += 1
-                else:
-                    now = time.time()
-                    if current_co2 is not None:
-                        if last_co2_at is not None:
-                            interval = round(now - last_co2_at, 2)
-                        last_co2_at = now
-                        co2 = current_co2
-                    if current_temp is not None:
-                        temp = round(current_temp, 2)
-                if time.time() - last_send >= 1.0:
+    co2 = None
+    temp = None
+    packets = 0
+    skipped = 0
+    last_packet = None
+    last_co2_at = None
+    interval = None
+    encoding = None
+    last_send = 0.0
+    last_valid_reading = 0.0
+    next_connect = 0.0
+    device = None
+    while True:
+        if device is None:
+            delay = next_connect - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                device = hid.device()
+                device.open_path(path)
+                try:
+                    device.send_feature_report(MAGIC_TABLE)
+                except Exception:
+                    pass
+                device.set_nonblocking(0)
+                print(f"{display_name}: датчик подключён", flush=True)
+            except Exception as exc:
+                if device is not None:
                     try:
-                        send(args.url, {
-                            "sensor_id": sensor_id,
-                            "meta": meta,
-                            "co2": co2,
-                            "temp": temp,
-                            "encoding": encoding,
-                            "packets": packets,
-                            "skipped": skipped,
-                            "interval": interval,
-                            "last_packet": last_packet,
-                            "sent_at": time.time(),
-                        })
-                        last_send = time.time()
-                        print(f"{display_name}: CO2={co2} ppm, temp={temp} C", flush=True)
-                    except Exception as exc:
-                        print(f"Сервер недоступен; повторю отправку: {exc}", flush=True)
-                        time.sleep(2)
-    finally:
-        device.close()
+                        device.close()
+                    except Exception:
+                        pass
+                device = None
+                next_connect = time.monotonic() + 4.0
+                print(f"{display_name}: датчик недоступен, повторю поиск: {exc}", flush=True)
+                continue
+
+        try:
+            raw = device.read(8, 1000)
+        except Exception as exc:
+            try:
+                device.close()
+            except Exception:
+                pass
+            device = None
+            next_connect = time.monotonic() + 2.0
+            print(f"{display_name}: ошибка чтения, переподключаюсь: {exc}", flush=True)
+            continue
+
+        if raw:
+            raw = [int(byte) for byte in raw]
+            packets += 1
+            last_packet = " ".join(f"{byte:02x}" for byte in raw)
+            current_co2, current_temp = decode(raw)
+            packet_encoding = "plain"
+            if current_co2 is None and current_temp is None:
+                current_co2, current_temp = decode(decrypt(raw))
+                packet_encoding = "encrypted"
+            if current_co2 is None and current_temp is None:
+                skipped += 1
+            else:
+                now = time.time()
+                last_valid_reading = time.monotonic()
+                encoding = packet_encoding
+                if current_co2 is not None:
+                    if last_co2_at is not None:
+                        interval = round(now - last_co2_at, 2)
+                    last_co2_at = now
+                    co2 = current_co2
+                if current_temp is not None:
+                    temp = round(current_temp, 2)
+
+        if last_valid_reading and time.monotonic() - last_valid_reading > 20.0:
+            try:
+                device.close()
+            except Exception:
+                pass
+            device = None
+            last_valid_reading = 0.0
+            next_connect = time.monotonic() + 2.0
+            print(f"{display_name}: показания не поступают, переподключаюсь", flush=True)
+            continue
+
+        if co2 is not None and time.monotonic() - last_send >= 1.0:
+            try:
+                send(args.url, {
+                    "sensor_id": sensor_id,
+                    "meta": meta,
+                    "co2": co2,
+                    "temp": temp,
+                    "encoding": encoding,
+                    "packets": packets,
+                    "skipped": skipped,
+                    "interval": interval,
+                    "last_packet": last_packet,
+                    "sent_at": time.time(),
+                })
+                last_send = time.monotonic()
+                print(f"{display_name}: CO2={co2} ppm, temp={temp} C", flush=True)
+            except Exception as exc:
+                print(f"Сервер недоступен; повторю отправку: {exc}", flush=True)
+                time.sleep(2)
 
 
 def run(args: argparse.Namespace) -> None:
-    found = devices()
-    while not found:
-        print("Датчик не найден; повторный поиск через 4 секунды...", flush=True)
-        time.sleep(4)
-        found = devices()
+    workers: dict[str, threading.Thread] = {}
+    while True:
+        try:
+            found = devices()
+        except Exception as exc:
+            print(f"Не удалось выполнить поиск HID-устройств: {exc}", flush=True)
+            time.sleep(4)
+            continue
 
-    if args.sensor_path:
-        selected = [item for item in found if args.sensor_path in str(item.get("path", ""))]
-        if not selected:
-            raise SystemExit(f"Датчик с путём {args.sensor_path!r} не найден.")
-        selected = selected[:1]
-    else:
         selected = found
+        if args.sensor_path:
+            selected = [item for item in found
+                        if args.sensor_path in str(item.get("path", ""))]
 
-    workers = []
-    for info in selected:
-        worker = threading.Thread(target=run_device, args=(args, info), daemon=True)
-        worker.start()
-        workers.append(worker)
-    for worker in workers:
-        worker.join()
+        if not selected:
+            if args.sensor_path and found:
+                print(f"Устройство с путём {args.sensor_path!r} не найдено; найдено HID устройств: {len(found)}",
+                      flush=True)
+            else:
+                print("CO2-датчики VID 04d9 PID a052 не найдены; повторный поиск через 4 секунды...",
+                      flush=True)
+            time.sleep(4)
+            continue
+
+        for info in selected:
+            path = info.get("path", b"")
+            key = path.decode("utf-8", "replace") if isinstance(path, bytes) else str(path)
+            worker = workers.get(key)
+            if worker is None or not worker.is_alive():
+                product = info.get("product_string") or "CO2 monitor"
+                vendor_id = info.get("vendor_id", VENDOR_ID)
+                product_id = info.get("product_id", PRODUCT_ID)
+                print(
+                    f"Найдено устройство: {product}; VID:PID={vendor_id:04x}:{product_id:04x}; "
+                    f"путь={key}; запускаю чтение",
+                    flush=True,
+                )
+                worker = threading.Thread(target=run_device, args=(args, info), daemon=True)
+                worker.start()
+                workers[key] = worker
+        time.sleep(4)
 
 
 def main() -> None:
@@ -181,8 +244,11 @@ def main() -> None:
     parser.add_argument("--longitude", type=float)
     parser.add_argument("--list", action="store_true", dest="list_devices")
     args = parser.parse_args()
-    found = devices()
     if args.list_devices:
+        try:
+            found = devices()
+        except Exception as exc:
+            raise SystemExit(f"Не удалось перечислить HID-устройства: {exc}") from exc
         for item in found:
             print(json.dumps(item, ensure_ascii=False, default=lambda value: value.decode(errors="replace")))
         return
