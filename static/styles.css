@@ -552,6 +552,115 @@ main {
   color: var(--muted-dim);
 }
 
+/* ───────────────────────── карта НГУ ───────────────────────── */
+.map-card .card-head {
+  align-items: center;
+}
+
+.map-card h2 {
+  margin-bottom: 4px;
+}
+
+.map-address {
+  margin: 0;
+  color: var(--muted-dim);
+  font-size: 13px;
+}
+
+.map-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.map-link:hover,
+.map-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  outline: none;
+}
+
+.map-frame-wrap {
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--panel-soft);
+}
+
+.floor-map { display: grid; gap: 14px; }
+
+.floor-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.floor-tab {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-dim);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+
+.floor-tab:hover,
+.floor-tab:focus-visible {
+  border-color: var(--muted);
+  color: var(--text);
+  outline: none;
+}
+
+.floor-tab.is-active {
+  border-color: var(--accent);
+  background: rgba(61, 220, 151, 0.1);
+  color: var(--accent);
+}
+
+.floor-plan-wrap {
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: #f5f6f3;
+}
+
+.floor-plan {
+  display: block;
+  width: 100%;
+  max-height: 620px;
+  object-fit: contain;
+}
+
+.floor-map-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted-dim);
+  font: 11px var(--mono);
+}
+
+.floor-map-foot a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.floor-map-foot a:hover,
+.floor-map-foot a:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  outline: none;
+}
+
 @media (max-width: 620px) {
   .chart-card .card-head {
     align-items: flex-start;
@@ -749,6 +858,18 @@ footer {
   .reading { padding: 24px 20px 22px; }
 
   .chart-foot { flex-direction: column; gap: 4px; }
+
+  .map-card .card-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .floor-plan-wrap { min-height: 300px; }
+
+  .floor-map-foot {
+    flex-direction: column;
+    gap: 5px;
+  }
 
   .ref-list b { flex-basis: 72px; }
 }

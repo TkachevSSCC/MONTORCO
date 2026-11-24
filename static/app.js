@@ -27,6 +27,9 @@
     sensors: $("sensors"),
     sensorsNote: $("sensors-note"),
     telemetry: $("telemetry"),
+    floorMap: document.querySelector("[data-floor-map]"),
+    floorPlan: document.querySelector("[data-floor-plan]"),
+    floorCaption: document.querySelector("[data-floor-caption]"),
   };
 
   let state = null;
@@ -36,6 +39,33 @@
   let chartHistory = [];
   let historySensorId = null;
   let chartPeriod = 86400;
+
+  const floorPlans = {
+    0: {
+      label: "Цоколь",
+      image: "https://www.nsu.ru/upload/iblock/9c7/NSU_Plan_Education_0_level.jpg",
+    },
+    1: {
+      label: "1 этаж",
+      image: "https://www.nsu.ru/upload/iblock/942/NSU_Plan_Education_1_level.jpg",
+    },
+    2: {
+      label: "2 этаж",
+      image: "https://www.nsu.ru/upload/iblock/e89/0mjdhn3sl8kpicqts022lk1vvn1hi8t1/NSU_Plan_Education_2_level.png",
+    },
+    3: {
+      label: "3 этаж",
+      image: "https://www.nsu.ru/upload/iblock/1f0/tirowyyi6kwsss0ogz7mj4uhah27fa9p/NSU_Plan_Education_3_level.png",
+    },
+    4: {
+      label: "4 этаж",
+      image: "https://www.nsu.ru/upload/iblock/2ee/diogikb3fzuyjbl5of9mz1ahlatnre4e/NSU_Plan_Education_4_level_%D1%84%D0%BE%D1%82%D0%BE%D1%88%D0%BE%D0%BF.png",
+    },
+    5: {
+      label: "5 этаж",
+      image: "https://www.nsu.ru/upload/iblock/311/NSU_Plan_Education_5_level.jpg",
+    },
+  };
 
   // ───────────────────────── форматирование ─────────────────────────
   const nf = new Intl.NumberFormat("ru-RU");
@@ -48,6 +78,25 @@
   function coordinates(meta) {
     if (meta?.latitude == null || meta?.longitude == null) return "не указаны";
     return `${Number(meta.latitude).toFixed(5)}, ${Number(meta.longitude).toFixed(5)}`;
+  }
+
+  function setupFloorMap() {
+    if (!el.floorMap || !el.floorPlan) return;
+    const tabs = el.floorMap.querySelectorAll("[data-floor]");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const floor = floorPlans[tab.dataset.floor];
+        if (!floor) return;
+        tabs.forEach((item) => {
+          const active = item === tab;
+          item.classList.toggle("is-active", active);
+          item.setAttribute("aria-selected", String(active));
+        });
+        el.floorPlan.src = floor.image;
+        el.floorPlan.alt = `План ${floor.label} Учебного корпуса №1 НГУ`;
+        el.floorCaption.textContent = `${floor.label} · Учебный корпус №1`;
+      });
+    });
   }
 
   function ago(ts) {
@@ -492,6 +541,8 @@
       drawChart();
     });
   });
+
+  setupFloorMap();
 
   // ───────────────────────── поток данных ─────────────────────────
   function apply(data) {

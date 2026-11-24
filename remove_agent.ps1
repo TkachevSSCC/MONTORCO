@@ -1,10 +1,8 @@
 $ErrorActionPreference = "Stop"
 
-$agentDir = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE "MONTORCO-Agent"))
+$agentDir = [IO.Path]::GetFullPath((Join-Path $env:ProgramData "MONTORCO-Agent"))
 $agentScript = Join-Path $agentDir "remote_agent.py"
 $pidFile = Join-Path $agentDir "agent.pid"
-$startupDir = [Environment]::GetFolderPath("Startup")
-$shortcut = Join-Path $startupDir "MONTORCO CO2 Agent.lnk"
 $taskName = "MONTORCO CO2 Agent"
 
 Write-Host "Останавливаю процессы агента..."
@@ -44,12 +42,8 @@ if ($processIds.Count -eq 0) {
     Write-Host "Остановлены процессы агента: $($processIds -join ', ')"
 }
 
-if (Test-Path -LiteralPath $shortcut) {
-    Remove-Item -LiteralPath $shortcut -Force
-    Write-Host "Удалён ярлык из автозагрузки."
-}
-
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     Write-Host "Удалена задача автозапуска агента."
 }
