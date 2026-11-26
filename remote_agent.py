@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import json
 import threading
 import time
@@ -71,8 +72,11 @@ def send(url: str, payload: dict) -> None:
 def run_device(args: argparse.Namespace, info: dict) -> None:
     path = info.get("path", b"")
     raw_path = path.decode("utf-8", "replace") if isinstance(path, bytes) else str(path)
-    path_hash = hashlib.sha256(raw_path.encode()).hexdigest().upper()
+    host_id = os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "unknown-host"
+    legacy_hash = hashlib.sha256(raw_path.encode()).hexdigest().upper()
+    path_hash = hashlib.sha256(f"{host_id}\0{raw_path}".encode()).hexdigest().upper()
     sensor_id = f"sensor-{path_hash[:16].lower()}"
+    legacy_sensor_id = f"sensor-{legacy_hash[:16].lower()}"
     display_name = f"CO₂ датчик {path_hash[:6]}"
     meta = {
         "name": display_name,
@@ -175,6 +179,7 @@ def run_device(args: argparse.Namespace, info: dict) -> None:
             try:
                 send(args.url, {
                     "sensor_id": sensor_id,
+                    "legacy_sensor_id": legacy_sensor_id,
                     "meta": meta,
                     "co2": co2,
                     "temp": temp,

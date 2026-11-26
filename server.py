@@ -19,7 +19,7 @@ from collections import deque
 from pathlib import Path
 
 import hid
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,9 +33,9 @@ MAGIC_TABLE = (0, 0, 0, 0, 0, 0, 0, 0)
 # ключ расшифровки для оригинальных TFA AirCO2ntrol
 MAGIC_WORD = [((w << 4) & 0xFF) | (w >> 4) for w in bytearray(b"Htemp99e")]
 
-HISTORY_SECONDS = 24 * 60 * 60
+HISTORY_SECONDS = 72 * 60 * 60
 MAX_POINTS = HISTORY_SECONDS + 60
-DEVICE_RETENTION_SECONDS = 48 * 60 * 60
+DEVICE_RETENTION_SECONDS = 72 * 60 * 60
 STALE_AFTER = 20.0        # секунд без пакетов -> датчик считается потерянным
 SCAN_EVERY = 4.0          # период поиска новых датчиков
 REMOTE_STALE_AFTER = 20.0
@@ -121,6 +121,10 @@ class HistoryStore:
             "CREATE INDEX IF NOT EXISTS readings_sensor_time "
             "ON readings(sensor_id, timestamp)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS sensor_names ("
+            "sensor_id TEXT PRIMARY KEY, name TEXT NOT NULL)"
+        )
         self.db.commit()
         self.prune()
 
@@ -159,6 +163,22 @@ class HistoryStore:
     def delete_sensor(self, sensor_id: str) -> None:
         with self.lock:
             self.db.execute("DELETE FROM readings WHERE sensor_id = ?", (sensor_id,))
+            self.db.commit()
+
+    def sensor_names(self) -> dict[str, str]:
+        with self.lock:
+            return dict(self.db.execute("SELECT sensor_id, name FROM sensor_names"))
+
+    def set_sensor_name(self, sensor_id: str, name: str | None) -> None:
+        with self.lock:
+            if name is None:
+                self.db.execute("DELETE FROM sensor_names WHERE sensor_id = ?", (sensor_id,))
+            else:
+                self.db.execute(
+                    "INSERT INTO sensor_names(sensor_id, name) VALUES (?, ?) "
+                    "ON CONFLICT(sensor_id) DO UPDATE SET name = excluded.name",
+                    (sensor_id, name),
+                )
             self.db.commit()
 
 
@@ -407,6 +427,7 @@ class SensorManager:
 
 class RemoteReading(BaseModel):
     sensor_id: str = Field(min_length=1, max_length=512)
+    legacy_sensor_id: str | None = Field(default=None, max_length=512)
     meta: dict = Field(default_factory=dict)
     co2: int | None = None
     temp: float | None = None
@@ -420,8 +441,67 @@ class RemoteReading(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
+class SensorRename(BaseModel):
+    sensor_id: str = Field(min_length=1, max_length=512)
+    name: str | None = Field(default=None, max_length=80)
+
+
 remote_readings: dict[str, dict] = {}
 remote_lock = threading.Lock()
+
+
+def remote_temp_bucket(temp: float | None) -> int | None:
+    """Группирует показания удалённых датчиков по устойчивой температуре."""
+    return None if temp is None else int(temp + 0.5)
+
+
+def split_remote_history(sensor_id: str, history: list[list]) -> list[str]:
+    """Разделяет ранее смешанную историю, если в ней видны разные датчики."""
+    groups: dict[int, list[list]] = {}
+    for point in history:
+        bucket = remote_temp_bucket(point[2])
+        if bucket is not None:
+            groups.setdefault(bucket, []).append(point)
+    if len(groups) < 2:
+        return []
+
+    keys = []
+    history_store.delete_sensor(f"remote:{sensor_id}")
+    for bucket, points in sorted(groups.items()):
+        key = f"{sensor_id}#t{bucket}"
+        keys.append(key)
+        for point in points:
+            history_store.append(f"remote:{key}", point)
+    return keys
+
+
+def remote_stream_key(sensor_id: str, temp: float | None, history: list[list]) -> str:
+    """Возвращает отдельный ключ потока, не меняя протокол агента."""
+    variants = [key for key in remote_readings if key.startswith(f"{sensor_id}#t")]
+    if not variants:
+        variants = split_remote_history(sensor_id, history)
+        if variants:
+            base = remote_readings.pop(sensor_id, None)
+            if base:
+                for key in variants:
+                    bucket = int(key.rsplit("#t", 1)[1])
+                    points = [point for point in history
+                              if remote_temp_bucket(point[2]) == bucket]
+                    remote_readings[key] = {
+                        **base,
+                        "sensor_id": key,
+                        "history": points,
+                        "co2": points[-1][1] if points else None,
+                        "temp": points[-1][2] if points else None,
+                    }
+    if not variants:
+        return sensor_id
+    bucket = remote_temp_bucket(temp)
+    if bucket is not None:
+        matching = f"{sensor_id}#t{bucket}"
+        if matching in remote_readings:
+            return matching
+    return variants[0]
 
 
 def remote_snapshot(item: dict) -> dict:
@@ -445,6 +525,24 @@ def remote_snapshot(item: dict) -> dict:
     }
 
 
+def disambiguate_sensor_names(sensors: list[dict]) -> list[dict]:
+    """Делает имена одинаковых датчиков различимыми только на сайте."""
+    name_counts: dict[str, int] = {}
+    for sensor in sensors:
+        name = sensor["meta"].get("name") or "CO₂ датчик"
+        name_counts[name] = name_counts.get(name, 0) + 1
+
+    result = []
+    for sensor in sensors:
+        name = sensor["meta"].get("name") or "CO₂ датчик"
+        if name_counts[name] > 1:
+            suffix = sensor["id"].split(":")[-1][-6:].upper()
+            meta = {**sensor["meta"], "name": f"{name} · {suffix}"}
+            sensor = {**sensor, "meta": meta}
+        result.append(sensor)
+    return result
+
+
 manager = SensorManager()
 manager.start()
 
@@ -464,6 +562,11 @@ def api_state() -> dict:
             history_store.delete_sensor(f"remote:{sensor_id}")
         remote = [remote_snapshot(item) for item in remote_readings.values()]
     sensors = local["sensors"] + remote
+    custom_names = history_store.sensor_names()
+    for sensor in sensors:
+        if sensor["id"] in custom_names:
+            sensor["meta"] = {**sensor["meta"], "name": custom_names[sensor["id"]]}
+    sensors = disambiguate_sensor_names(sensors)
     sensors.sort(key=lambda sensor: (not sensor["online"], sensor["meta"]["product"]))
     return {
         "time": time.time(),
@@ -473,11 +576,23 @@ def api_state() -> dict:
     }
 
 
+@app.post("/api/sensors/name")
+def rename_sensor(rename: SensorRename) -> dict:
+    name = rename.name.strip() if rename.name is not None else None
+    if name == "":
+        name = None
+    snapshot = api_state()
+    if not any(sensor["id"] == rename.sensor_id for sensor in snapshot["sensors"]):
+        raise HTTPException(status_code=404, detail="Датчик не найден")
+    history_store.set_sensor_name(rename.sensor_id, name)
+    return {"ok": True, "name": name}
+
+
 @app.get("/api/history")
 def api_history(sensor_id: str) -> dict:
     return {
         "sensor_id": sensor_id,
-        "history": history_store.load(sensor_id, max_points=1800),
+        "history": history_store.load(sensor_id, max_points=5400),
     }
 
 
@@ -493,14 +608,18 @@ def remote_reading(reading: RemoteReading) -> dict:
             history_store.delete_sensor(f"remote:{sensor_id}")
         item = remote_readings.get(reading.sensor_id)
         history = item["history"] if item else history_store.load(f"remote:{reading.sensor_id}")
+        stream_id = remote_stream_key(reading.sensor_id, reading.temp, history)
+        item = remote_readings.get(stream_id)
+        if item:
+            history = item["history"]
         if reading.co2 is not None and (not history or now - history[-1][0] >= 1):
             point = [reading.sent_at or now, reading.co2, reading.temp]
             history = (history + [point])[-MAX_POINTS:]
-            history_store.append(f"remote:{reading.sensor_id}", point)
-        remote_readings[reading.sensor_id] = {
-            "sensor_id": reading.sensor_id,
+            history_store.append(f"remote:{stream_id}", point)
+        remote_readings[stream_id] = {
+            "sensor_id": stream_id,
             "meta": {**reading.meta,
-                     "name": reading.meta.get("name") or f"CO₂ датчик {reading.sensor_id[-6:].upper()}",
+                      "name": reading.meta.get("name") or f"CO₂ датчик {stream_id[-6:].upper()}",
                      "remote": True,
                      "product": reading.meta.get("product") or "CO2 monitor (remote)",
                      "latitude": reading.latitude,
@@ -511,6 +630,14 @@ def remote_reading(reading: RemoteReading) -> dict:
             "last_packet": reading.last_packet, "sent_at": reading.sent_at or now,
             "received_at": now, "history": history,
         }
+        if reading.legacy_sensor_id:
+            bucket = remote_temp_bucket(reading.temp)
+            if bucket is not None and not history_store.sensor_names().get(f"remote:{stream_id}"):
+                legacy_name = history_store.sensor_names().get(
+                    f"remote:{reading.legacy_sensor_id}#t{bucket}"
+                )
+                if legacy_name:
+                    history_store.set_sensor_name(f"remote:{stream_id}", legacy_name)
     return {"ok": True}
 
 

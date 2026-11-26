@@ -25,6 +25,7 @@
     chartEmpty: $("chart-empty"),
     periodButtons: document.querySelectorAll(".period-button"),
     sensors: $("sensors"),
+    sensorsHeading: document.querySelector("#sensors").previousElementSibling.querySelector("h2"),
     sensorsNote: $("sensors-note"),
     telemetry: $("telemetry"),
     floorMap: document.querySelector("[data-floor-map]"),
@@ -38,7 +39,7 @@
   const sensorNames = new Map();
   let chartHistory = [];
   let historySensorId = null;
-  let chartPeriod = 86400;
+  let chartPeriod = 259200;
 
   const floorPlans = {
     0: {
@@ -73,7 +74,7 @@
   const fmtInt = (v) => (v === null || v === undefined ? "—" : nf.format(Math.round(v)));
   const fmtTemp = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} °C`);
   const fmtSec = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} с`);
-  const periodLabel = (seconds) => seconds >= 86400 ? "24 часа" : `${seconds / 3600} ч`;
+  const periodLabel = (seconds) => `${seconds / 3600} ч`;
 
   function coordinates(meta) {
     if (meta?.latitude == null || meta?.longitude == null) return "не указаны";
@@ -237,7 +238,7 @@
     const plotW = cssW - padL - padR;
     const plotH = cssH - padT - padB;
 
-    // Показываем весь доступный период, максимум последние 24 часа.
+    // Показываем весь доступный период, максимум последние 72 часа.
     const lastT = points[points.length - 1][0];
     const firstT = points[0][0];
     const span = Math.min(chartPeriod, Math.max(60, lastT - firstT));
@@ -385,7 +386,8 @@
 
       const name = document.createElement("div");
       name.className = "sensor-name";
-       name.textContent = sensorName(s);
+      name.textContent = sensorName(s);
+      name.addEventListener("dblclick", () => renameSensor(s));
 
       const st = document.createElement("div");
       st.className = `sensor-state ${s.online ? "online" : "offline"}`;
@@ -417,6 +419,27 @@
 
       card.append(top, values, path);
       el.sensors.append(card);
+    }
+  }
+
+  async function renameSensor(sensor) {
+    const currentName = sensorName(sensor);
+    const entered = window.prompt("Новое имя датчика. Оставьте поле пустым для сброса имени.", currentName);
+    if (entered === null) return;
+
+    try {
+      const response = await fetch("api/sensors/name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sensor_id: sensor.id, name: entered }),
+      });
+      if (!response.ok) throw new Error("Не удалось сохранить имя");
+      const stateResponse = await fetch("api/state");
+      if (!stateResponse.ok) throw new Error("Не удалось обновить список датчиков");
+      const updated = await stateResponse.json();
+      render(updated);
+    } catch (error) {
+      window.alert("Не удалось переименовать датчик. Повторите попытку.");
     }
   }
 
@@ -543,6 +566,11 @@
   });
 
   setupFloorMap();
+
+  el.sensorsHeading.addEventListener("dblclick", () => {
+    const sensor = primary || state?.sensors?.[0];
+    if (sensor) renameSensor(sensor);
+  });
 
   // ───────────────────────── поток данных ─────────────────────────
   function apply(data) {
